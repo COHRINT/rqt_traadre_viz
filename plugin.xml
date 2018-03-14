@@ -1,0 +1,17 @@
+<library path="src">
+  <class name="TraadrePlugin" type="rqt_traadre_ground.traadre_ground_plugin.TraadreGroundPlugin" base_class_type="rqt_gui_py::Plugin">
+    <description>
+    Ground control station for the TRAADRE project
+    </description>
+    <qtgui>
+      <group>
+        <label>Visualization</label>
+        <icon type="theme">folder</icon>
+        <statustip>Plugins related to visualization.</statustip>
+      </group>
+      <label>Traadre Ground</label>
+      <icon type="theme">video-display</icon>
+      <statustip>Traadre Ground Station</statustip>
+    </qtgui>
+  </class>
+</library>
