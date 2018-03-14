@@ -248,7 +248,9 @@ class DEMView(QGraphicsView):
             thisGoal.setBrush(QBrush(QColor(self._colors[1][0], self._colors[1][1], self._colors[1][2])))          
             self._goalIcon = thisGoal
             self._scene.addItem(thisGoal)
-
+        #Update the label's text:
+        self._goalIcon.setText(str(self._goalID))
+        
         #Pick up the world coordinates
         world = self._goalLocations[0]
 

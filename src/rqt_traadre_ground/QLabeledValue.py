@@ -26,4 +26,9 @@ class QLabeledValue(QWidget):
         self.setLayout(self.layout)
 
     def updateValue(self, value):
-        self.value.setText(str(value))
+        if type(value) is str:
+            self.value.setText(value)
+        elif type(value) is float:
+            self.value.setText('%1.2f' % value)
+        else:
+            self.value.setText(str(value))
