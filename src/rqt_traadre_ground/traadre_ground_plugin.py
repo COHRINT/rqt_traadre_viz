@@ -36,7 +36,9 @@ from qt_gui.plugin import Plugin
 
 class TraadreGroundPlugin(Plugin):
     def __init__(self, context):
+        
         super(TraadreGroundPlugin, self).__init__(context)
+        self.setObjectName('TraadreGroundPlugin')
         if context.serial_number() > 1:
             raise RuntimeError("Due to a limitation of tf_frames you may not run more than one instance of rqt_traadre_ground.")
         self._widget = TraadreGroundWidget()

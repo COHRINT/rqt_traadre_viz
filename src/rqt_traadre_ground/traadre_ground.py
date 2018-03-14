@@ -36,9 +36,10 @@ from tf.transformations import *
 
 import numpy as np
 import random
-from math import sqrt, atan, pi, degrees, floor
-from sensor_msgs.msg import Image
+from math import sqrt, atan, pi, degrees, floor, atan2
+from sensor_msgs.msg import *
 from nav_msgs.msg import *
+
 from geometry_msgs.msg import *
 from traadre_msgs.msg import *
 from traadre_msgs.srv import *
@@ -52,6 +53,8 @@ from rqt_py_common.topic_helpers import get_field_type
 from QLabeledValue import *
 import RobotIcon
 import ObjectIcon
+import QArrow
+
 import os, csv
 import rospkg
 import struct
@@ -69,9 +72,11 @@ def accepted_topic(topic):
 class TraadreGroundWidget(QWidget):
     robot_state_changed = Signal()
     goal_changed = Signal()
-    
+    steer_changed = Signal(float)
+        
     def __init__(self, map_topic='/map'):
         super(TraadreGroundWidget, self).__init__()
+
         self._layout = QVBoxLayout()
         self._h_layout = QHBoxLayout()
         self.setAcceptDrops(True)
@@ -140,10 +145,17 @@ class TraadreGroundWidget(QWidget):
         self.setLayout(self._layout)
         
         self.robot_state_changed.connect(self._updateState)
-        self.odom_sub = rospy.Subscriber('/state', RobotState, self.robot_state_cb)
+        self.odom_sub = rospy.Subscriber('state', RobotState, self.robot_state_cb)
         
         self.goal_changed.connect(self._updateGoal)
-        self.goal_sub = rospy.Subscriber('/current_goal', NamedGoal, self.goal_cb)
+        self.goal_sub = rospy.Subscriber('current_goal', NamedGoal, self.goal_cb)
+
+        #Route steer signals to both update funcs
+        map(self.steer_changed.connect, [self._updateSteer, self._map_view._updateSteer])
+        self.steer_pub = rospy.Publisher('steer_ground', Steering, queue_size=10, latch=True)
+        
+        self.joy_sub = rospy.Subscriber('joy', Joy, self.joy_cb)
+        self.goal_sub = rospy.Subscriber('current_goal', NamedGoal, self.goal_cb)
         
     def _updateState(self):
         for idx, val in enumerate(self._robotState):
@@ -154,7 +166,20 @@ class TraadreGroundWidget(QWidget):
     def _updateGoal(self):
         for idx, val in enumerate(self._goal):
             self.goalLabels[idx].updateValue(val)
-            
+
+    def _updateSteer(self, steer):
+        steerMsg = Steering()
+        steerMsg.header.stamp = rospy.Time.now()
+        steerMsg.steer= steer  * 180 / math.pi
+        self.steer_pub.publish(steerMsg)
+        
+        #print 'Updating main widgets to ', steer
+    
+    
+    def joy_cb(self, msg):
+        #print 'Axes:', msg.axes[0], ' ', msg.axes[1]
+        self.steer_changed.emit(atan2(-msg.axes[1], -msg.axes[0]))
+        
     def robot_state_cb(self, msg):
         #Resolve the odometry to a screen coordinate for display
 
@@ -193,7 +218,7 @@ class DEMView(QGraphicsView):
     dem_changed = Signal()
     robot_odom_changed = Signal()
     goal_changed = Signal()
-    
+
     def __init__(self, dem_topic='/dem',
                  tf=None, parent=None):
         super(DEMView, self).__init__()
@@ -219,10 +244,11 @@ class DEMView(QGraphicsView):
        
         self.dem_sub = rospy.Subscriber('/dem', Image, self.dem_cb)
         self.odom_sub = rospy.Subscriber('/pose', PoseStamped, self.robot_odom_cb)
-
+        
         self._robotLocations = [(0,0)]
         self._goalLocations = [(0,0)]
-
+        self.arrow = None
+        
         self.setScene(self._scene)
 
     def goal_cb(self, msg):
@@ -281,16 +307,29 @@ class DEMView(QGraphicsView):
         #print 'Robot at: ', self._robotLocations[0] 
         
         self.robot_odom_changed.emit()
+        
+    def _updateSteer(self, steer):
+        print 'Updating DEM view to:', steer
 
+        #Draw the steer arrow
+        if self.arrow == None:
+            self.arrow = QArrow.QArrow()
+            self._scene.addItem(self.arrow)
+            
+        iconBounds = self.arrow.boundingRect()
+        world = self._robotLocations[0]
+        self.arrow.setPos(QPointF(world[0], world[1]))
+        self.arrow.setRotation(steer*180/math.pi + 90)
+        self.arrow.setTransformOriginPoint(QPoint(iconBounds.width()/2, iconBounds.height()/2))
 
     def _updateRobot(self):
         #Redraw the robot locations
         #print 'Updating robot locations'
         #If this is the first time we've seen this robot, create its icon
         if self._robotIcon == None:
-            thisRobot = RobotIcon.RobotWidget(str('^'), self._colors[0])
-            thisRobot.setFont(QFont("SansSerif", max(self.h / 20.0,3), QFont.Bold))
-            thisRobot.setBrush(QBrush(QColor(self._colors[0][0], self._colors[0][1], self._colors[0][2])))
+            thisRobot = QArrow.QArrow(color=QColor(self._colors[0][0], self._colors[0][1], self._colors[0][2]))
+            #thisRobot.setFont(QFont("SansSerif", max(self.h / 20.0,3), QFont.Bold))
+            #thisRobot.setBrush(QBrush(QColor(self._colors[0][0], self._colors[0][1], self._colors[0][2])))
             self._robotIcon = thisRobot
             self._scene.addItem(thisRobot)
 
@@ -309,8 +348,13 @@ class DEMView(QGraphicsView):
         self._robotIcon.setRotation(-world[5]*180/math.pi + 90)
 
         #Set the origin so that the caret rotates around its centroid(ish)
-        self._robotIcon.setTransformOriginPoint(QPoint(iconBounds.width()/2, iconBounds.height()/3))
-        
+        self._robotIcon.setTransformOriginPoint(QPoint(iconBounds.width()/2, iconBounds.height()/2))
+
+        #move the Steer icon as well
+        if not self.arrow is None:
+            self.arrow.setPos(QPointF(world[0], world[1]))
+
+                          
     def add_dragdrop(self, item):
         # Add drag and drop functionality to all the items in the view
         def c(x, e):
