@@ -117,7 +117,8 @@ class TraadreGroundWidget(QWidget):
         poseGroup.setLayout(poseLayout)
         hNavLayout.addWidget(poseGroup)
 
-        self.goalLabels = [QLabeledValue("X"),
+        self.goalLabels = [QLabeledValue("ID"),
+                           QLabeledValue("X"),
                            QLabeledValue("Y")]
         
         for label in self.goalLabels:
@@ -137,12 +138,12 @@ class TraadreGroundWidget(QWidget):
         self._layout.addLayout(vNavLayout)
         #self._layout.addWidget(self._doneButton)
         self.setLayout(self._layout)
-
-        self.odom_sub = rospy.Subscriber('/state', RobotState, self.robot_state_cb)
-        self.robot_state_changed.connect(self._updateState)
         
-        self.goal_sub = rospy.Subscriber('/current_goal', Pose2D, self.goal_cb)
+        self.robot_state_changed.connect(self._updateState)
+        self.odom_sub = rospy.Subscriber('/state', RobotState, self.robot_state_cb)
+        
         self.goal_changed.connect(self._updateGoal)
+        self.goal_sub = rospy.Subscriber('/current_goal', NamedGoal, self.goal_cb)
         
     def _updateState(self):
         for idx, val in enumerate(self._robotState):
@@ -174,12 +175,12 @@ class TraadreGroundWidget(QWidget):
     def goal_cb(self, msg):
          #Resolve the odometry to a screen coordinate for display
 
-        worldX = msg.x
-        worldY = msg.y
+        worldX = msg.pose.x
+        worldY = msg.pose.y
 
         print 'Got Goal at: ' + str(worldX) + ',' + str(worldY)
 
-        self._goal = [worldX, worldY]
+        self._goal = [msg.id, worldX, worldY]
         self.goal_changed.emit()
         
     def save_settings(self, plugin_settings, instance_settings):
@@ -218,7 +219,7 @@ class DEMView(QGraphicsView):
        
         self.dem_sub = rospy.Subscriber('/dem', Image, self.dem_cb)
         self.odom_sub = rospy.Subscriber('/pose', PoseStamped, self.robot_odom_cb)
-        self.goal_sub = rospy.Subscriber('/current_goal', Pose2D, self.goal_cb)
+
         self._robotLocations = [(0,0)]
         self._goalLocations = [(0,0)]
 
@@ -227,12 +228,14 @@ class DEMView(QGraphicsView):
     def goal_cb(self, msg):
          #Resolve the odometry to a screen coordinate for display
 
-        worldX = msg.x
-        worldY = msg.y
-
+        worldX = msg.pose.x
+        worldY = msg.pose.y
+        id = msg.id
+        
         print 'Got Goal at: ' + str(worldX) + ',' + str(worldY)
 
         self._goalLocations[0] = [worldX, worldY]
+        self._goalID = id
         self.goal_changed.emit()
 
     def _updateGoal(self):
@@ -240,7 +243,7 @@ class DEMView(QGraphicsView):
         #print 'Updating goal locations'
         #If this is the first time we've seen this robot, create its icon
         if self._goalIcon is None:
-            thisGoal = RobotIcon.RobotWidget(str('X'), self._colors[1])
+            thisGoal = RobotIcon.RobotWidget(str(self._goalID), self._colors[1])
             thisGoal.setFont(QFont("SansSerif", max(self.h / 20.0,3), QFont.Bold))
             thisGoal.setBrush(QBrush(QColor(self._colors[1][0], self._colors[1][1], self._colors[1][2])))          
             self._goalIcon = thisGoal
@@ -254,7 +257,7 @@ class DEMView(QGraphicsView):
         world[0] = world[0]  - iconBounds.width()/2 + 0.75
         
         world[1] = self.h - (world[1] + iconBounds.height()/2) #mirror the y coord
-        print 'Drawing goal at ', world
+        print 'Drawing goal ', self._goalID, ' at ', world
         self._goalIcon.setPos(QPointF(world[0], world[1]))
 
 
@@ -431,6 +434,8 @@ class DEMView(QGraphicsView):
         #Allow the robot position to be drawn on the DEM 
         self.robot_odom_changed.connect(self._updateRobot)
         self.goal_changed.connect(self._updateGoal)
+        self.goal_sub = rospy.Subscriber('/current_goal', NamedGoal, self.goal_cb)
+
         
 
     def _mirror(self, item):
