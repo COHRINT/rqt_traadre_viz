@@ -49,6 +49,7 @@ from PyQt5.QtWidgets import *
 
 from rqt_py_common.topic_helpers import get_field_type
 
+from QLabeledValue import *
 import RobotIcon
 import ObjectIcon
 import os, csv
@@ -66,20 +67,21 @@ def accepted_topic(topic):
         return False
 
 class TraadreGroundWidget(QWidget):
-
+    robot_state_changed = Signal()
+    goal_changed = Signal()
+    
     def __init__(self, map_topic='/map'):
         super(TraadreGroundWidget, self).__init__()
         self._layout = QVBoxLayout()
         self._h_layout = QHBoxLayout()
         self.setAcceptDrops(True)
         self.setWindowTitle('TRAADRE Ground Station')
-
+        
         self.map = map_topic
         self._tf = tf.TransformListener()
 
-        hNavLayout = QHBoxLayout()
-        vVidLayout = QVBoxLayout()
-
+        vNavLayout = QVBoxLayout()
+ 
      
         self._map_view = DEMView(map_topic, tf = self._tf, parent = self)
         #self._wordBank = HRIWordBank(parent = self)
@@ -88,49 +90,104 @@ class TraadreGroundWidget(QWidget):
         
         #Add the word bank to the left side
         #hNavLayout.addWidget(self._wordBank)
-        hNavLayout.addWidget(self._map_view)
+        vNavLayout.addWidget(self._map_view)
 
+
+        hNavLayout = QHBoxLayout()
+               
+        poseGroup = QGroupBox("Current Pose")
+        poseLayout = QVBoxLayout()
         
-        self._layout.addLayout(hNavLayout)
-        self._layout.addWidget(self._doneButton)
+        goalGroup = QGroupBox("Current Goal")
+        goalLayout = QVBoxLayout()
+
+        fuelGroup = QGroupBox('Current State')
+        fuelLayout = QVBoxLayout()
+        
+        self.poseLabels = [QLabeledValue("X"),
+                QLabeledValue("Y"),
+                QLabeledValue("Z"),
+                QLabeledValue("Roll"),
+                QLabeledValue("Pitch"),
+                QLabeledValue("Yaw")]
+
+        for label in self.poseLabels:
+            poseLayout.addWidget(label)
+
+        poseGroup.setLayout(poseLayout)
+        hNavLayout.addWidget(poseGroup)
+
+        self.goalLabels = [QLabeledValue("X"),
+                           QLabeledValue("Y")]
+        
+        for label in self.goalLabels:
+            goalLayout.addWidget(label)
+
+        goalGroup.setLayout(goalLayout)
+        hNavLayout.addWidget(goalGroup)
+
+
+        self.fuelLabel = QLabeledValue('Fuel')
+        fuelLayout.addWidget(self.fuelLabel)
+        fuelGroup.setLayout(fuelLayout)
+        hNavLayout.addWidget(fuelGroup)
+        
+        vNavLayout.addLayout(hNavLayout)
+        
+        self._layout.addLayout(vNavLayout)
+        #self._layout.addWidget(self._doneButton)
         self.setLayout(self._layout)
 
+        self.odom_sub = rospy.Subscriber('/state', RobotState, self.robot_state_cb)
+        self.robot_state_changed.connect(self._updateState)
         
-    def dragEnterEvent(self, e):
-        if not e.mimeData().hasText():
-            if not hasattr(e.source(), 'selectedItems') or len(e.source().selectedItems()) == 0:
-                qWarning('HRIGetPos.dragEnterEvent(): not hasattr(event.source(), selectedItems) or len(event.source().selectedItems()) == 0')
-                return
-            item = e.source().selectedItems()[0]
-            topic_name = item.data(0, Qt.UserRole)
-            if topic_name == None:
-                qWarning('HRIGetPos.dragEnterEvent(): not hasattr(item, ros_topic_name_)')
-                return
+        self.goal_sub = rospy.Subscriber('/current_goal', Pose2D, self.goal_cb)
+        self.goal_changed.connect(self._updateGoal)
+        
+    def _updateState(self):
+        for idx, val in enumerate(self._robotState):
+            self.poseLabels[idx].updateValue(val)
 
-        else:
-            topic_name = str(e.mimeData().text())
+        self.fuelLabel.updateValue(self._robotFuel)
+        
+    def _updateGoal(self):
+        for idx, val in enumerate(self._goal):
+            self.goalLabels[idx].updateValue(val)
+            
+    def robot_state_cb(self, msg):
+        #Resolve the odometry to a screen coordinate for display
 
-        if accepted_topic(topic_name):
-            e.accept()
-            e.acceptProposedAction()
+        worldX = msg.pose.position.x
+        worldY = msg.pose.position.y
+        worldZ = msg.pose.position.z
+        
+        worldRoll, worldPitch, worldYaw = euler_from_quaternion([msg.pose.orientation.w,
+                                                                 msg.pose.orientation.x,
+                                                                 msg.pose.orientation.y,
+                                                                 msg.pose.orientation.z],'sxyz')
 
-    def dropEvent(self, e):
-        if e.mimeData().hasText():
-            topic_name = str(e.mimeData().text())
-        else:
-            droped_item = e.source().selectedItems()[0]
-            topic_name = str(droped_item.data(0, Qt.UserRole))
+        self._robotState = [worldX, worldY, worldZ, worldRoll, worldPitch, worldYaw]
+        self._robotFuel = msg.fuel
 
-        topic_type, array = get_field_type(topic_name)
+        self.robot_state_changed.emit()
+        
+    def goal_cb(self, msg):
+         #Resolve the odometry to a screen coordinate for display
 
-        #Add the word bank icon to the map at the desired position
+        worldX = msg.x
+        worldY = msg.y
 
+        print 'Got Goal at: ' + str(worldX) + ',' + str(worldY)
+
+        self._goal = [worldX, worldY]
+        self.goal_changed.emit()
+        
     def save_settings(self, plugin_settings, instance_settings):
         self._map_view.save_settings(plugin_settings, instance_settings)
 
     def restore_settings(self, plugin_settings, instance_settings):
         self._map_view.restore_settings(plugin_settings, instance_settings)
-
+        
 class DEMView(QGraphicsView):
     dem_changed = Signal()
     robot_odom_changed = Signal()
@@ -267,21 +324,6 @@ class DEMView(QGraphicsView):
             
     def mousePressEvent(self,e):
         return
-    
-        p = self.mapToScene(e.x(), e.y())
-        if self._parent._wordBank._currentItem:
-            modelName = self._parent._wordBank._currentItem._modelName
-            wordItem = self._parent._wordBank._currentItem
-            if self._addedItems.has_key(modelName):
-                self._scene.removeItem(self._addedItems[modelName])
-                
-            #Draw a pixmap of the current item on the map
-            newPM = ObjectIcon.ObjectIcon(None, None, wordItem)
-            self._addedItems[modelName] = newPM
-            self._scene.addItem(newPM)
-            #newPM.rescale(1)
-            newPM.setPos(QPointF(p.x() - 50, p.y() - 50))
-   
             
     def dem_cb(self, msg):
         #self.resolution = msg.info.resolution
@@ -344,8 +386,14 @@ class DEMView(QGraphicsView):
         self.dem_changed.emit()
 
     def close(self):
+
         if self.dem_sub:
             self.dem_sub.unregister()
+        if self.goal_sub:
+            self.goal_sub.unregister()
+        if self.pose_sub:
+            self.pose_sub.unregister()
+            
         super().close()
         
     def dragMoveEvent(self, e):
@@ -397,148 +445,4 @@ class DEMView(QGraphicsView):
     def restore_settings(self, plugin_settings, instance_settings):
         # TODO add any settings to be restored
         pass    
-            
-class HRIGetPos(QGraphicsView):
-    map_changed = Signal()
-   
-    
-    def __init__(self, map_topic='/map',
-                 tf=None, parent=None):
-        super(HRIGetPos, self).__init__()
-        self._parent = parent
 
-        self._goal_mode = True
-
-        self.map_changed.connect(self._updateMap)
-       
-        
-        self.setDragMode(QGraphicsView.NoDrag)
-
-        self._map = None
-        self._map_item = None
-        self._addedItems = dict()
-        self.w = 0
-        self.h = 0
-
-        self._colors = [(238, 34, 116), (68, 134, 252), (236, 228, 46), (102, 224, 18), (242, 156, 6), (240, 64, 10), (196, 30, 250)]
-        self._scene = QGraphicsScene()
-
-       
-        self.map_sub = rospy.Subscriber('/map', OccupancyGrid, self.map_cb)
-
-        self.setScene(self._scene)
-
-    def add_dragdrop(self, item):
-        # Add drag and drop functionality to all the items in the view
-        def c(x, e):
-            self.dragEnterEvent(e)
-        def d(x, e):
-            self.dropEvent(e)
-        item.setAcceptDrops(True)
-        item.dragEnterEvent = c
-        item.dropEvent = d
-
-    def dragEnterEvent(self, e):
-        print 'map enter event'
-
-    def dropEvent(self, e):
-        print 'Nav drop event'
-            
-    def mousePressEvent(self,e):
-
-        p = self.mapToScene(e.x(), e.y())
-        if self._parent._wordBank._currentItem:
-            modelName = self._parent._wordBank._currentItem._modelName
-            wordItem = self._parent._wordBank._currentItem
-            if self._addedItems.has_key(modelName):
-                self._scene.removeItem(self._addedItems[modelName])
-                
-            #Draw a pixmap of the current item on the map
-            newPM = ObjectIcon.ObjectIcon(None, None, wordItem)
-            self._addedItems[modelName] = newPM
-            self._scene.addItem(newPM)
-            #newPM.rescale(1)
-            newPM.setPos(QPointF(p.x() - 50, p.y() - 50))
-
-    def savePoses(self, msg):
-        #Save the position of each of the pixmaps for the selected objects
-        #Also save object names
-        rospack = rospkg.RosPack()
-        print 'Working dir:' + rospack.get_path('ramrod')
-
-        outFile = open(rospack.get_path('ramrod') + '/user_output/model_pos.txt','w')
-        
-        for model in self._addedItems:
-            xCoord = (3100 + self._addedItems[model].x() + 50)/100
-            yCoord = (3100 - self._addedItems[model].y() + 50)/100
-            outFile.write(model + ',' + str(xCoord) + ',' + str(yCoord) + '\n')
-        outFile.close()    
-            
-    def map_cb(self, msg):
-        self.resolution = msg.info.resolution
-        self.w = msg.info.width
-        self.h = msg.info.height
-
-        a = np.array(msg.data, dtype=np.uint8, copy=False, order='C')
-        a = a.reshape((self.h, self.w))
-        if self.w % 4:
-            e = np.empty((self.h, 4 - self.w % 4), dtype=a.dtype, order='C')
-            a = np.append(a, e, axis=1)
-        image = QImage(a.reshape((a.shape[0] * a.shape[1])), self.w, self.h, QImage.Format_Indexed8)
-
-        for i in reversed(range(101)):
-            image.setColor(100 - i, qRgb(i* 2.55, i * 2.55, i * 2.55))
-        image.setColor(101, qRgb(255, 0, 0))  # not used indices
-        image.setColor(255, qRgb(200, 200, 200))  # color for unknown value -1
-        self._map = imaeg
-        
-        self.map_changed.emit()
-
-    def close(self):
-        if self.map_sub:
-            self.map_sub.unregister()
-        super(HRIGetPos, self).close()
-        
-    def dragMoveEvent(self, e):
-        print('Scene got drag move event')
-        
-    def resizeEvent(self, evt=None):
-        #Resize map to fill window
-        bounds = self._scene.sceneRect()
-        if bounds:
-            self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
-            self.centerOn(self._map_item)
-            self.show()
- 
-    def _updateMap(self):
-        if self._map_item:
-            self._scene.removeItem(self._map_item)
-
-        pixmap = QPixmap.fromImage(self._map)
-        self._map_item = self._scene.addPixmap(pixmap.scaled(self.w*100,self.h*100))
-        self._map_item.setPos(QPointF(0, 0))
-        # Everything must be mirrored
-        self._mirror(self._map_item)
-
-        # Add drag and drop functionality
-        self.add_dragdrop(self._map_item)
-
-        #Resize map to fill window
-        self.setSceneRect(-self.w*100, 0, self.w*100, self.h*100)
-
-        self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
-        self.centerOn(self._map_item)
-        self.show()
-
-
-    def _mirror(self, item):
-        item.scale(-1, 1)
-        item.translate(-self.w, 0)
-
-    def save_settings(self, plugin_settings, instance_settings):
-        # TODO add any settings to be saved
-        pass
-
-    def restore_settings(self, plugin_settings, instance_settings):
-        # TODO add any settings to be restored
-        pass
