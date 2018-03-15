@@ -20,7 +20,9 @@ class QLabeledValue(QWidget):
         self.value.setLineWidth(1)
        
         self.layout = QHBoxLayout()
-
+        #self.label.setContentsMargins(-1, 0, -1, 0)
+        self.layout.setContentsMargins(-1, 0, -1, 0)
+        
         self.layout.addWidget(self.label)
         self.layout.addWidget(self.value)
         self.setLayout(self.layout)
