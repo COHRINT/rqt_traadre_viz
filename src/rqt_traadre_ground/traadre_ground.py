@@ -108,6 +108,8 @@ class TraadreGroundWidget(QWidget):
 
         fuelGroup = QGroupBox('Current State')
         fuelLayout = QVBoxLayout()
+
+        fuelGoalLayout = QVBoxLayout()
         
         self.poseLabels = [QLabeledValue("X"),
                 QLabeledValue("Y"),
@@ -115,7 +117,7 @@ class TraadreGroundWidget(QWidget):
                 QLabeledValue("Roll"),
                 QLabeledValue("Pitch"),
                 QLabeledValue("Yaw")]
-
+        poseLayout.setSpacing(0)
         for label in self.poseLabels:
             poseLayout.addWidget(label)
 
@@ -125,21 +127,24 @@ class TraadreGroundWidget(QWidget):
         self.goalLabels = [QLabeledValue("ID"),
                            QLabeledValue("X"),
                            QLabeledValue("Y")]
-        
+        goalLayout.setSpacing(0)
         for label in self.goalLabels:
             goalLayout.addWidget(label)
 
         goalGroup.setLayout(goalLayout)
-        hNavLayout.addWidget(goalGroup)
+        #hNavLayout.addWidget(goalGroup)
 
 
         self.fuelLabel = QLabeledValue('Fuel')
         fuelLayout.addWidget(self.fuelLabel)
         fuelGroup.setLayout(fuelLayout)
-        hNavLayout.addWidget(fuelGroup)
-        
+        #hNavLayout.addWidget(fuelGroup)
+
+        fuelGoalLayout.addWidget(goalGroup)
+        fuelGoalLayout.addWidget(fuelGroup)
+        hNavLayout.addLayout(fuelGoalLayout)
+
         vNavLayout.addLayout(hNavLayout)
-        
         self._layout.addLayout(vNavLayout)
         #self._layout.addWidget(self._doneButton)
         self.setLayout(self._layout)
@@ -152,7 +157,7 @@ class TraadreGroundWidget(QWidget):
 
         #Route steer signals to both update funcs
         map(self.steer_changed.connect, [self._updateSteer, self._map_view._updateSteer])
-        self.steer_pub = rospy.Publisher('steer_ground', Steering, queue_size=10, latch=True)
+        self.steer_pub = rospy.Publisher('steer', Steering, queue_size=10, latch=True)
         
         self.joy_sub = rospy.Subscriber('joy', Joy, self.joy_cb)
         self.goal_sub = rospy.Subscriber('current_goal', NamedGoal, self.goal_cb)
@@ -219,7 +224,7 @@ class DEMView(QGraphicsView):
     robot_odom_changed = Signal()
     goal_changed = Signal()
 
-    def __init__(self, dem_topic='/dem',
+    def __init__(self, dem_topic='dem',
                  tf=None, parent=None):
         super(DEMView, self).__init__()
         self._parent = parent
@@ -242,8 +247,8 @@ class DEMView(QGraphicsView):
         self._scene = QGraphicsScene()
 
        
-        self.dem_sub = rospy.Subscriber('/dem', Image, self.dem_cb)
-        self.odom_sub = rospy.Subscriber('/pose', PoseStamped, self.robot_odom_cb)
+        self.dem_sub = rospy.Subscriber('dem', Image, self.dem_cb)
+        self.odom_sub = rospy.Subscriber('pose', PoseStamped, self.robot_odom_cb)
         
         self._robotLocations = [(0,0)]
         self._goalLocations = [(0,0)]
@@ -274,6 +279,7 @@ class DEMView(QGraphicsView):
             thisGoal.setBrush(QBrush(QColor(self._colors[1][0], self._colors[1][1], self._colors[1][2])))          
             self._goalIcon = thisGoal
             self._scene.addItem(thisGoal)
+            
         #Update the label's text:
         self._goalIcon.setText(str(self._goalID))
         
@@ -480,7 +486,7 @@ class DEMView(QGraphicsView):
         #Allow the robot position to be drawn on the DEM 
         self.robot_odom_changed.connect(self._updateRobot)
         self.goal_changed.connect(self._updateGoal)
-        self.goal_sub = rospy.Subscriber('/current_goal', NamedGoal, self.goal_cb)
+        self.goal_sub = rospy.Subscriber('current_goal', NamedGoal, self.goal_cb)
 
         
 
