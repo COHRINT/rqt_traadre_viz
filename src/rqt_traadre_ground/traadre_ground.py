@@ -39,6 +39,7 @@ import random
 from math import sqrt, atan, pi, degrees, floor, atan2
 from sensor_msgs.msg import *
 from nav_msgs.msg import *
+from cv_bridge import CvBridge, CvBridgeError
 
 from geometry_msgs.msg import *
 from traadre_msgs.msg import *
@@ -223,7 +224,8 @@ class DEMView(QGraphicsView):
     dem_changed = Signal()
     robot_odom_changed = Signal()
     goal_changed = Signal()
-
+    hazmap_changed = Signal()
+    
     def __init__(self, dem_topic='dem',
                  tf=None, parent=None):
         super(DEMView, self).__init__()
@@ -232,7 +234,8 @@ class DEMView(QGraphicsView):
         self._goal_mode = True
 
         self.dem_changed.connect(self._update)
-
+        self.hazmap_changed.connect(self._updateHazmap)
+        
         self._dem_item = None
         self._goalIcon = None
         self._robotIcon = None
@@ -321,13 +324,16 @@ class DEMView(QGraphicsView):
         if self.arrow == None:
             self.arrow = QArrow.QArrow()
             self._scene.addItem(self.arrow)
+
             
         iconBounds = self.arrow.boundingRect()
         world = self._robotLocations[0]
-        self.arrow.setPos(QPointF(world[0], world[1]))
+        self.arrow.setPos(QPointF(world[0], self.h - world[1]))
         self.arrow.setRotation(steer*180/math.pi + 90)
-        self.arrow.setTransformOriginPoint(QPoint(iconBounds.width()/2, iconBounds.height()/2))
 
+        self._mirror(self.arrow)
+        self.arrow.setTransformOriginPoint(QPoint(iconBounds.width()/2, iconBounds.height()/2))
+        
     def _updateRobot(self):
         #Redraw the robot locations
         #print 'Updating robot locations'
@@ -339,6 +345,8 @@ class DEMView(QGraphicsView):
             self._robotIcon = thisRobot
             self._scene.addItem(thisRobot)
 
+
+            
         #Pick up the world coordinates
         world = self._robotLocations[0]
 
@@ -349,16 +357,20 @@ class DEMView(QGraphicsView):
         world[1] = self.h - (world[1] + iconBounds.height()/2) #mirror the y coord
         #print 'Drawing robot at ', world
         
-        self._robotIcon.setPos(QPointF(world[0], world[1]))
+        self._robotIcon.setPos(QPointF(world[0], self.h - world[1]))
         #print 'Rotating:', world[5]
-        self._robotIcon.setRotation(-world[5]*180/math.pi + 90)
-
-        #Set the origin so that the caret rotates around its centroid(ish)
+        self._robotIcon.setRotation(world[5]*180/math.pi + 90)
+        
+        #Set the origin so that the caret rotates around its center(ish)
         self._robotIcon.setTransformOriginPoint(QPoint(iconBounds.width()/2, iconBounds.height()/2))
 
+        #print 'Transform origin:', self._robotIcon.transformOriginPoint()
+        
+        #self._mirror(self._robotIcon)
         #move the Steer icon as well
         if not self.arrow is None:
-            self.arrow.setPos(QPointF(world[0], world[1]))
+            self.arrow.setPos(QPointF(world[0], self.h - world[1]))
+            
 
                           
     def add_dragdrop(self, item):
@@ -379,7 +391,42 @@ class DEMView(QGraphicsView):
             
     def mousePressEvent(self,e):
         return
-            
+    
+    def hazmap_cb(self, msg):
+        #Unlike the dem, the hazmap is pretty standard - gray8 image
+        hazmap = CvBridge().imgmsg_to_cv2(msg, desired_encoding="passthrough")
+
+        self.hazmapImage = QImage(hazmap, msg.width, msg.height, QImage.Format_Grayscale8)
+        self.hazmap_changed.emit()
+
+    def _updateHazmap(self):
+        print 'Rendering hazmap'
+
+        hazTrans = QImage(self.hazmapImage.width(), self.hazmapImage.height(), QImage.Format_ARGB32)
+        hazTrans.fill(Qt.transparent)
+        
+        for row in range(0, self.hazmapImage.height()):
+            for col in range(0, self.hazmapImage.width()):
+                #Change the colormap to be clear for clear areas, red translucent for obstacles
+                pixColor = self.hazmapImage.pixelColor(col, row)
+
+                if pixColor.rgba() == 0xff000000:
+                    hazTrans.setPixelColor(col, row, QColor(255, 0, 0, 64))
+                else:
+                    hazTrans.setPixelColor(col, row, QColor(0, 0, 0, 0))
+
+        self.hazmapItem = self._scene.addPixmap(QPixmap.fromImage(hazTrans)) #.scaled(self.w*100,self.h*100))
+        self.hazmapItem.setPos(QPointF(0, 0))
+        trans = QTransform()
+        #print 'Translating by:', bounds.width()
+        
+        trans.scale(self.w/hazTrans.width(),self.h/hazTrans.height())
+        #trans.translate(0, -bounds.height())
+        self.hazmapItem.setTransform(trans)
+        
+        # Everything must be mirrored
+        #self._mirror(self.hazmapItem)
+        
     def dem_cb(self, msg):
         #self.resolution = msg.info.resolution
         self.w = msg.width
@@ -456,8 +503,10 @@ class DEMView(QGraphicsView):
         
     def resizeEvent(self, evt=None):
         #Resize map to fill window
+        scale = 1
         bounds = self._scene.sceneRect()
         if bounds:
+            self._scene.setSceneRect(0, 0, self.w*scale, self.h*scale)
             self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
             self.centerOn(self._dem_item)
             self.show()
@@ -470,7 +519,7 @@ class DEMView(QGraphicsView):
         self._dem_item = self._scene.addPixmap(pixmap) #.scaled(self.w*100,self.h*100))
         self._dem_item.setPos(QPointF(0, 0))
         # Everything must be mirrored
-        #self._mirror(self._dem_item)
+        self._mirror(self._dem_item)
 
         # Add drag and drop functionality
         self.add_dragdrop(self._dem_item)
@@ -482,18 +531,31 @@ class DEMView(QGraphicsView):
         self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
         self.centerOn(self._dem_item)
         self.show()
-
+        bounds = self._scene.sceneRect()
+        #print 'Bounds:', bounds
         #Allow the robot position to be drawn on the DEM 
         self.robot_odom_changed.connect(self._updateRobot)
         self.goal_changed.connect(self._updateGoal)
         self.goal_sub = rospy.Subscriber('current_goal', NamedGoal, self.goal_cb)
 
-        
+        #Overlay the hazmap now that the dem is loaded
+        self.hazmap_sub = rospy.Subscriber('hazmap', Image, self.hazmap_cb)
 
     def _mirror(self, item):
-        pass
-        #item.scale((-1, 1))
-        #item.translate(-self.w, 0)
+        #Get the width from the item's bounds...
+        bounds = item.sceneBoundingRect()
+        #print 'Bounds:', bounds
+        #print 'item:', item
+
+        trans = QTransform()
+        #print 'Translating by:', bounds.width()
+        
+        trans.scale(1,-1)
+        trans.translate(0, -bounds.height())
+        item.setTransform(trans)
+
+        #bounds = item.sceneBoundingRect()
+        #print 'Bounds:', bounds
 
     def save_settings(self, plugin_settings, instance_settings):
         # TODO add any settings to be saved
