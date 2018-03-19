@@ -60,6 +60,7 @@ import os, csv
 import rospkg
 import struct
 import cv2
+import copy
 
 def accepted_topic(topic):
     msg_types = [OccupancyGrid, Path, PolygonStamped, PointStamped]
@@ -162,6 +163,8 @@ class TraadreGroundWidget(QWidget):
         
         self.joy_sub = rospy.Subscriber('joy', Joy, self.joy_cb)
         self.goal_sub = rospy.Subscriber('current_goal', NamedGoal, self.goal_cb)
+        self._goal = ('None', 0.0, 0.0)
+        
         
     def _updateState(self):
         for idx, val in enumerate(self._robotState):
@@ -177,6 +180,10 @@ class TraadreGroundWidget(QWidget):
         steerMsg = Steering()
         steerMsg.header.stamp = rospy.Time.now()
         steerMsg.steer= steer  * 180 / math.pi
+
+        steerMsg.id = self._goal[0]
+        steerMsg.goal.x = self._goal[1]
+        steerMsg.goal.y = self._goal[2]
         self.steer_pub.publish(steerMsg)
         
         #print 'Updating main widgets to ', steer
@@ -198,7 +205,11 @@ class TraadreGroundWidget(QWidget):
                                                                  msg.pose.orientation.y,
                                                                  msg.pose.orientation.z],'sxyz')
 
+
+        #TODO: Wrap the inv rpy to [-pi, pi]
+        
         self._robotState = [worldX, worldY, worldZ, worldRoll, worldPitch, worldYaw]
+        #print 'Robot State:', self._robotState
         self._robotFuel = msg.fuel
 
         self.robot_state_changed.emit()
@@ -251,9 +262,9 @@ class DEMView(QGraphicsView):
 
        
         self.dem_sub = rospy.Subscriber('dem', Image, self.dem_cb)
-        self.odom_sub = rospy.Subscriber('pose', PoseStamped, self.robot_odom_cb)
+        self.odom_sub = rospy.Subscriber('state', RobotState, self.robot_odom_cb)
         
-        self._robotLocations = [(0,0)]
+        self._robotLocation = [0,0,0,0,0,0]
         self._goalLocations = [(0,0)]
         self.arrow = None
         
@@ -277,7 +288,7 @@ class DEMView(QGraphicsView):
         #print 'Updating goal locations'
         #If this is the first time we've seen this robot, create its icon
         if self._goalIcon is None:
-            thisGoal = RobotIcon.RobotWidget(str(self._goalID), self._colors[1])
+            thisGoal = RobotIcon.RobotWidget(str(self._goalID), QColor(self._colors[1][0], self._colors[1][1], self._colors[1][2]))
             thisGoal.setFont(QFont("SansSerif", max(self.h / 20.0,3), QFont.Bold))
             thisGoal.setBrush(QBrush(QColor(self._colors[1][0], self._colors[1][1], self._colors[1][2])))          
             self._goalIcon = thisGoal
@@ -287,20 +298,26 @@ class DEMView(QGraphicsView):
         self._goalIcon.setText(str(self._goalID))
         
         #Pick up the world coordinates
-        world = self._goalLocations[0]
+        world = copy.deepcopy(self._goalLocations[0])
 
         iconBounds = self._goalIcon.boundingRect()
-        #Adjust the world coords so that the icon is centered on the robot, rather than top-left
-        world[0] = world[0]  - iconBounds.width()/2 + 0.75
+
+        world[0] /= self.demDownsample
+        world[1] /= self.demDownsample
         
-        world[1] = self.h - (world[1] + iconBounds.height()/2) #mirror the y coord
+        #Adjust the world coords so that the icon is centered on the goal
+        world[0] = world[0] - iconBounds.width()/2 
+        world[1] = world[1] - iconBounds.height()/2 #mirror the y coord
+
+#        world[1] = self.h - (world[1] + iconBounds.height()/2) #mirror the y coord
+#        print 'Ymax:', self.h
         print 'Drawing goal ', self._goalID, ' at ', world
         self._goalIcon.setPos(QPointF(world[0], world[1]))
 
 
     def robot_odom_cb(self, msg):
 
-        #Resolve the odometry to a screen coordinate for display
+        #Resolve the odometry to a screen coordinate for display from a RobotState message
 
         worldX = msg.pose.position.x
         worldY = msg.pose.position.y
@@ -312,13 +329,13 @@ class DEMView(QGraphicsView):
                                                                  msg.pose.orientation.z],'sxyz')
 
        
-        self._robotLocations[0] = [worldX, worldY, worldZ, worldRoll, worldPitch, worldYaw]
+        self._robotLocation = [worldX, worldY, worldZ, worldRoll, worldPitch, worldYaw]
         #print 'Robot at: ', self._robotLocations[0] 
         
         self.robot_odom_changed.emit()
         
     def _updateSteer(self, steer):
-        print 'Updating DEM view to:', steer
+        #print 'Updating DEM view to:', steer
 
         #Draw the steer arrow
         if self.arrow == None:
@@ -327,11 +344,26 @@ class DEMView(QGraphicsView):
 
             
         iconBounds = self.arrow.boundingRect()
-        world = self._robotLocations[0]
-        self.arrow.setPos(QPointF(world[0], self.h - world[1]))
+        world = copy.deepcopy(self._robotLocation)
+
+        if world == [0,0,0,0,0,0]:
+            print 'No coords yet received..'
+            return
+        
+        #print 'Steering World coord:', world
+        world[0] /= self.demDownsample
+        world[1] /= self.demDownsample
+
+        #Adjust the world coords so that the icon is centered on the robot, rather than top-left
+        iconBounds = self.arrow.boundingRect() 
+        world[0] = world[0] - iconBounds.width()/2 
+        world[1] = world[1] - iconBounds.height()/2 #mirror the y coord
+
+        #print 'Steering screen coord:', world
+        self.arrow.setPos(QPointF(world[0], world[1]))
         self.arrow.setRotation(steer*180/math.pi + 90)
 
-        self._mirror(self.arrow)
+        #self._mirror(self.arrow)
         self.arrow.setTransformOriginPoint(QPoint(iconBounds.width()/2, iconBounds.height()/2))
         
     def _updateRobot(self):
@@ -339,25 +371,32 @@ class DEMView(QGraphicsView):
         #print 'Updating robot locations'
         #If this is the first time we've seen this robot, create its icon
         if self._robotIcon == None:
-            thisRobot = QArrow.QArrow(color=QColor(self._colors[0][0], self._colors[0][1], self._colors[0][2]))
+            #thisRobot = RobotIcon.RobotWidget('R', color=QColor(self._colors[0][0], self._colors[0][1], self._colors[0][2]))
             #thisRobot.setFont(QFont("SansSerif", max(self.h / 20.0,3), QFont.Bold))
             #thisRobot.setBrush(QBrush(QColor(self._colors[0][0], self._colors[0][1], self._colors[0][2])))
+            thisRobot = QArrow.QArrow(color=QColor(self._colors[0][0], self._colors[0][1], self._colors[0][2]))
             self._robotIcon = thisRobot
             self._scene.addItem(thisRobot)
 
 
             
-        #Pick up the world coordinates
-        world = self._robotLocations[0]
-
+        #Pick up the world coordinates - copy so we can change in place
+        world = copy.deepcopy(self._robotLocation)
+        #print 'Raw robot loc: ', world[0], world[1]
+        
         iconBounds = self._robotIcon.boundingRect()
+
+        world[0] /= self.demDownsample
+        world[1] /= self.demDownsample
+        
         #Adjust the world coords so that the icon is centered on the robot, rather than top-left
-        world[0] = world[0]  - iconBounds.width()/2 + 0.75
+        world[0] = world[0] - iconBounds.width()/2 
+        world[1] = world[1] - iconBounds.height()/2 #mirror the y coord
+
+        #print 'Drawing robot at ', world[0], world[1]
         
-        world[1] = self.h - (world[1] + iconBounds.height()/2) #mirror the y coord
-        #print 'Drawing robot at ', world
+        self._robotIcon.setPos(QPointF(world[0], world[1]))
         
-        self._robotIcon.setPos(QPointF(world[0], self.h - world[1]))
         #print 'Rotating:', world[5]
         self._robotIcon.setRotation(world[5]*180/math.pi + 90)
         
@@ -369,7 +408,12 @@ class DEMView(QGraphicsView):
         #self._mirror(self._robotIcon)
         #move the Steer icon as well
         if not self.arrow is None:
-            self.arrow.setPos(QPointF(world[0], self.h - world[1]))
+            iconBounds = self.arrow.boundingRect()
+            steer_world = world
+            #steer_world[0] = world[0] - iconBounds.width()/2 
+            #steer_world[1] = world[1] - iconBounds.height()/2 #mirror the y coord
+
+            self.arrow.setPos(QPointF(steer_world[0], steer_world[1]))
             
 
                           
@@ -506,7 +550,7 @@ class DEMView(QGraphicsView):
         scale = 1
         bounds = self._scene.sceneRect()
         if bounds:
-            self._scene.setSceneRect(0, 0, self.w*scale, self.h*scale)
+            self._scene.setSceneRect(-50, -50, self.w*scale+100, self.h*scale+100)
             self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
             self.centerOn(self._dem_item)
             self.show()
@@ -519,15 +563,14 @@ class DEMView(QGraphicsView):
         self._dem_item = self._scene.addPixmap(pixmap) #.scaled(self.w*100,self.h*100))
         self._dem_item.setPos(QPointF(0, 0))
         # Everything must be mirrored
-        self._mirror(self._dem_item)
+        #self._mirror(self._dem_item)
 
         # Add drag and drop functionality
         self.add_dragdrop(self._dem_item)
 
         #Resize map to fill window
         scale = 1
-        self.setSceneRect(0, 0, self.w*scale, self.h*scale)
-
+        self.setSceneRect(-50, -50, self.w*scale+100, self.h*scale+100)
         self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
         self.centerOn(self._dem_item)
         self.show()

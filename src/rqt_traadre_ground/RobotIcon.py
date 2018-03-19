@@ -15,10 +15,10 @@ class RobotIcon(QLabel):
         self.emit(SIGNAL('clicked()'))
 
 class RobotWidget(QGraphicsSimpleTextItem):
-    def __init__(self, text, robotColor):
+    def __init__(self, text, color):
         QGraphicsSimpleTextItem.__init__(self, text)
         self._selected = False
-        self._color = QColor(robotColor[0], robotColor[1], robotColor[2])
+        self._color = color
         self._color.setAlpha(100)
         
     def selected(self, m_sel):

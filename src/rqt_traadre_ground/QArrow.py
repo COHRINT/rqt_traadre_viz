@@ -13,7 +13,7 @@ class QArrow(QGraphicsPixmapItem):
         self.pixmap().fill(Qt.white)
         
         self._color = QColor(color)
-        self._color.setAlpha(85)
+        self._color.setAlpha(90)
         
         #self._pen = QPen(self._color, 2, Qt.SolidLine,
         #        Qt.RoundCap, Qt.RoundJoin))
