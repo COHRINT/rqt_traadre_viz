@@ -199,14 +199,16 @@ class TraadreGroundWidget(QWidget):
         worldX = msg.pose.position.x
         worldY = msg.pose.position.y
         worldZ = msg.pose.position.z
+
         
-        worldRoll, worldPitch, worldYaw = euler_from_quaternion([msg.pose.orientation.w,
-                                                                 msg.pose.orientation.x,
+        worldRoll, worldPitch, worldYaw = euler_from_quaternion([msg.pose.orientation.x,
                                                                  msg.pose.orientation.y,
-                                                                 msg.pose.orientation.z],'sxyz')
+                                                                 msg.pose.orientation.z,
+                                                                 msg.pose.orientation.w],'sxyz')
 
 
         #TODO: Wrap the inv rpy to [-pi, pi]
+        #print 'Orientation:', msg.pose.orientation, ' RPY:', worldRoll, worldPitch, worldYaw
         
         self._robotState = [worldX, worldY, worldZ, worldRoll, worldPitch, worldYaw]
         #print 'Robot State:', self._robotState
@@ -323,10 +325,10 @@ class DEMView(QGraphicsView):
         worldY = msg.pose.position.y
         worldZ = msg.pose.position.z
         
-        worldRoll, worldPitch, worldYaw = euler_from_quaternion([msg.pose.orientation.w,
-                                                                 msg.pose.orientation.x,
+        worldRoll, worldPitch, worldYaw = euler_from_quaternion([msg.pose.orientation.x,
                                                                  msg.pose.orientation.y,
-                                                                 msg.pose.orientation.z],'sxyz')
+                                                                 msg.pose.orientation.z,
+                                                                 msg.pose.orientation.w],'sxyz')
 
        
         self._robotLocation = [worldX, worldY, worldZ, worldRoll, worldPitch, worldYaw]
@@ -455,7 +457,7 @@ class DEMView(QGraphicsView):
                 pixColor = self.hazmapImage.pixelColor(col, row)
 
                 if pixColor.rgba() == 0xff000000:
-                    hazTrans.setPixelColor(col, row, QColor(255, 0, 0, 64))
+                    hazTrans.setPixelColor(col, row, QColor(255, 0, 0, 32))
                 else:
                     hazTrans.setPixelColor(col, row, QColor(0, 0, 0, 0))
 
