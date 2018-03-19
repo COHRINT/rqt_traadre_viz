@@ -164,13 +164,19 @@ class TraadreGroundWidget(QWidget):
         self.joy_sub = rospy.Subscriber('joy', Joy, self.joy_cb)
         self.goal_sub = rospy.Subscriber('current_goal', NamedGoal, self.goal_cb)
         self._goal = ('None', 0.0, 0.0)
-        
+        self.lastSteerMsg = None
         
     def _updateState(self):
         for idx, val in enumerate(self._robotState):
             self.poseLabels[idx].updateValue(val)
 
         self.fuelLabel.updateValue(self._robotFuel)
+
+        #Ping unity with a steer if enabled
+        '''
+        if not self.lastSteerMsg is None:
+            self.steer_pub.publish(self.lastSteerMsg)
+        '''
         
     def _updateGoal(self):
         for idx, val in enumerate(self._goal):
@@ -184,6 +190,8 @@ class TraadreGroundWidget(QWidget):
         steerMsg.id = self._goal[0]
         steerMsg.goal.x = self._goal[1]
         steerMsg.goal.y = self._goal[2]
+        self.lastSteerMsg = steerMsg
+        
         self.steer_pub.publish(steerMsg)
         
         #print 'Updating main widgets to ', steer
