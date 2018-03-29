@@ -1,8 +1,8 @@
 
 <package>
-  <name>rqt_traadre_ground</name>
+  <name>rqt_traadre_viz</name>
   <version>0.0.0</version>
-  <description>rqt_traadre_ground is the ground control UI for the TRAADRE project</description>
+  <description>rqt_traadre_viz is some data visualization tools for the TRAADRE project</description>
   <maintainer email="stephen.mcguire@colorado.edu">Steve McGuire</maintainer>
 
   <license>BSD</license>

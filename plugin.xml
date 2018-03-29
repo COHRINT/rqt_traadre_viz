@@ -1,7 +1,8 @@
 <library path="src">
-  <class name="TraadrePlugin" type="rqt_traadre_ground.traadre_ground_plugin.TraadreGroundPlugin" base_class_type="rqt_gui_py::Plugin">
+  <class name="TraadreVizPlugin" 
+type="rqt_traadre_viz.data_viz_plugin.DataVizPlugin" base_class_type="rqt_gui_py::Plugin">
     <description>
-    Ground control station for the TRAADRE project
+    Experimenter data visualization for the TRAADRE project
     </description>
     <qtgui>
       <group>
@@ -9,9 +10,9 @@
         <icon type="theme">folder</icon>
         <statustip>Plugins related to visualization.</statustip>
       </group>
-      <label>Traadre Ground</label>
+      <label>Traadre Viz</label>
       <icon type="theme">video-display</icon>
-      <statustip>Traadre Ground Station</statustip>
+      <statustip>Traadre Data Viz</statustip>
     </qtgui>
   </class>
 </library>

@@ -30,26 +30,4 @@
 # ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-from traadre_ground import TraadreGroundWidget
-from qt_gui.plugin import Plugin
-
-
-class TraadreGroundPlugin(Plugin):
-    def __init__(self, context):
-        
-        super(TraadreGroundPlugin, self).__init__(context)
-        self.setObjectName('TraadreGroundPlugin')
-        if context.serial_number() > 1:
-            raise RuntimeError("Due to a limitation of tf_frames you may not run more than one instance of rqt_traadre_ground.")
-        self._widget = TraadreGroundWidget()
-        if context.serial_number() > 1:
-            self._widget.setWindowTitle(self._widget.windowTitle() + (' (%d)' % context.serial_number()))
-        context.add_widget(self._widget)
-
-        self.setObjectName('TRAADRE Ground Station')
-
-    def save_settings(self, plugin_settings, instance_settings):
-        self._widget.save_settings(plugin_settings, instance_settings)
-
-    def restore_settings(self, plugin_settings, instance_settings):
-        self._widget.restore_settings(plugin_settings, instance_settings)
+from data_viz import DataVizWidget 
